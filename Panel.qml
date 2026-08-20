@@ -242,6 +242,7 @@ Panel {
 
             Text {
               text: "󰣀"
+              textFormat: Text.PlainText
               color: root.foreground
               font.family: root.fontFamily
               font.pixelSize: Style.font.display
@@ -252,6 +253,7 @@ Panel {
               spacing: 0
               Text {
                 text: "SSH connections"
+                textFormat: Text.PlainText
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.title
@@ -261,6 +263,7 @@ Panel {
                 text: root.loading
                   ? "Reading " + root.configuredPath + "…"
                   : root.hosts.length + (root.hosts.length === 1 ? " host" : " hosts")
+                textFormat: Text.PlainText
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.bodySmall
@@ -270,6 +273,7 @@ Panel {
             Text {
               visible: root.loading
               text: "󰔟"
+              textFormat: Text.PlainText
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.body
@@ -303,6 +307,7 @@ Panel {
             visible: root.errors.length > 0
             width: parent.width
             text: root.errors.length > 0 ? String(root.errors[0]) : ""
+            textFormat: Text.PlainText
             color: root.urgent
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
@@ -321,6 +326,7 @@ Panel {
             text: root.hosts.length === 0
               ? "No literal Host aliases found"
               : "No matching SSH hosts"
+            textFormat: Text.PlainText
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
@@ -353,6 +359,7 @@ Panel {
                   Text {
                     Layout.preferredWidth: Style.space(18)
                     text: modelData.recentAt ? "󰋚" : "󰒍"
+                    textFormat: Text.PlainText
                     color: modelData.recentAt ? root.foreground : root.dim
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.body
@@ -366,6 +373,7 @@ Panel {
                     Text {
                       Layout.fillWidth: true
                       text: String(modelData.alias || "")
+                      textFormat: Text.PlainText
                       color: root.foreground
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.body
@@ -376,6 +384,7 @@ Panel {
                     Text {
                       Layout.fillWidth: true
                       text: String(modelData.details || modelData.alias || "")
+                      textFormat: Text.PlainText
                       color: root.dim
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.bodySmall
@@ -385,6 +394,7 @@ Panel {
 
                   Text {
                     text: "󰁔"
+                    textFormat: Text.PlainText
                     color: root.dim
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.bodySmall
@@ -406,6 +416,7 @@ Panel {
             visible: root.filteredHosts.length > 0
             width: parent.width
             text: "↑↓ select   Enter connect   Esc close   Right-click icon refreshes"
+            textFormat: Text.PlainText
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
