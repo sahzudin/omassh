@@ -12,6 +12,7 @@ from unittest import mock
 
 
 SCRIPT = Path(__file__).parents[1] / "bin" / "omassh-hosts"
+PANEL = Path(__file__).parents[1] / "Panel.qml"
 loader = importlib.machinery.SourceFileLoader("omassh_hosts", str(SCRIPT))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 assert spec is not None
@@ -84,6 +85,17 @@ class RecentTests(unittest.TestCase):
                 self.assertEqual(module.read_recents(), {"prod": 20, "dev": 10})
                 mode = module.state_path().stat().st_mode & 0o777
                 self.assertEqual(mode, 0o600)
+
+
+class QmlSafetyTests(unittest.TestCase):
+    def test_every_text_item_forces_plain_text(self) -> None:
+        panel = PANEL.read_text(encoding="utf-8")
+        self.assertGreater(panel.count("Text {"), 0)
+        self.assertEqual(
+            panel.count("Text {"),
+            panel.count("textFormat: Text.PlainText"),
+            "Every QML Text item must opt out of auto-rich-text rendering.",
+        )
 
 
 if __name__ == "__main__":
