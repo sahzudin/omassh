@@ -31,9 +31,10 @@ destinations.
 - Python 3 using only the standard library.
 - OpenSSH and Omarchy's configured terminal launcher.
 
-OmaSSH does not require sudo, a background service, credentials, or additional
-Python packages. It accesses the network only when you deliberately select a
-host, at which point the normal OpenSSH client handles the connection.
+OmaSSH runs entirely as your normal user account and needs no background
+service, stored credentials, or additional Python packages. It accesses the
+network only when you deliberately select a host, at which point the normal
+OpenSSH client handles the connection.
 
 ## Install
 
