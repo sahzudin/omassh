@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.sahzudin.omassh",
+  "name": "OmaSSH",
+  "version": "0.1.0",
+  "author": "Šahzudin Mahmić",
+  "license": "MIT",
+  "description": "Search SSH hosts from your OpenSSH config and connect from the Omarchy bar.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "OmaSSH",
+    "description": "Search SSH aliases and open a connection in the configured terminal.",
+    "category": "Network",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "configPath": "~/.ssh/config",
+      "refreshIntervalSec": 30,
+      "maxHosts": 200
+    },
+    "schema": [
+      {
+        "key": "configPath",
+        "type": "string",
+        "label": "SSH config path",
+        "defaultValue": "~/.ssh/config"
+      },
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 5,
+        "max": 3600,
+        "step": 5,
+        "defaultValue": 30
+      },
+      {
+        "key": "maxHosts",
+        "type": "integer",
+        "label": "Maximum hosts",
+        "min": 10,
+        "max": 1000,
+        "step": 10,
+        "defaultValue": 200
+      }
+    ]
+  }
+}

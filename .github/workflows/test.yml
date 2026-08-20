@@ -1,0 +1,28 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1f # v7.0.1
+
+      - name: Run parser tests
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Check package structure
+        run: |
+          python3 -m json.tool manifest.json >/dev/null
+          test -f Panel.qml
+          test -f Model.js
+          test -x bin/omassh-hosts
+          test -f README.md
+          test -f LICENSE

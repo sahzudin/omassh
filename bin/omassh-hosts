@@ -1,0 +1,292 @@
+#!/usr/bin/env python3
+"""Discover literal SSH aliases and maintain OmaSSH's recent-host list."""
+
+from __future__ import annotations
+
+import argparse
+import glob
+import json
+import os
+import shlex
+import sys
+import tempfile
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Iterator
+
+
+WILDCARD_CHARS = "*?!["
+DISPLAY_KEYS = {"hostname", "user", "port", "proxyjump"}
+
+
+@dataclass
+class Host:
+    alias: str
+    source: str
+    line: int
+    options: dict[str, str] = field(default_factory=dict)
+
+    def as_json(self, recent_at: int = 0) -> dict[str, object]:
+        hostname = self.options.get("hostname", "")
+        user = self.options.get("user", "")
+        port = self.options.get("port", "")
+        proxy_jump = self.options.get("proxyjump", "")
+
+        target = hostname or self.alias
+        if user:
+            target = f"{user}@{target}"
+        if port and port != "22":
+            target = f"{target}:{port}"
+
+        details = target
+        if proxy_jump:
+            details += f"  via {proxy_jump}"
+
+        return {
+            "alias": self.alias,
+            "hostname": hostname,
+            "user": user,
+            "port": port,
+            "proxyJump": proxy_jump,
+            "details": details,
+            "source": self.source,
+            "line": self.line,
+            "recentAt": recent_at,
+            "searchText": " ".join(
+                value
+                for value in (
+                    self.alias,
+                    hostname,
+                    user,
+                    port,
+                    proxy_jump,
+                    details,
+                )
+                if value
+            ).lower(),
+        }
+
+
+def expand_path(value: str, base_dir: Path) -> str:
+    value = os.path.expandvars(os.path.expanduser(value))
+    if not os.path.isabs(value):
+        value = str(base_dir / value)
+    return os.path.abspath(value)
+
+
+def tokens_from_line(raw_line: str) -> list[str]:
+    lexer = shlex.shlex(raw_line, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = "#"
+    try:
+        tokens = list(lexer)
+    except ValueError:
+        return []
+
+    # ssh_config accepts both `Keyword value` and `Keyword=value`.
+    if tokens and "=" in tokens[0]:
+        key, value = tokens[0].split("=", 1)
+        tokens = [key, value, *tokens[1:]]
+    elif len(tokens) > 1 and tokens[1] == "=":
+        tokens = [tokens[0], *tokens[2:]]
+    return tokens
+
+
+def config_lines(
+    path: Path,
+    include_base: Path,
+    stack: tuple[Path, ...] = (),
+    files: set[str] | None = None,
+    errors: list[str] | None = None,
+) -> Iterator[tuple[Path, int, list[str]]]:
+    files = files if files is not None else set()
+    errors = errors if errors is not None else []
+    canonical = path.expanduser().resolve(strict=False)
+
+    if canonical in stack:
+        errors.append(f"Skipped recursive Include: {canonical}")
+        return
+
+    try:
+        raw_lines = canonical.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        errors.append(f"SSH config not found: {canonical}")
+        return
+    except (OSError, UnicodeError) as exc:
+        errors.append(f"Could not read {canonical}: {exc}")
+        return
+
+    files.add(str(canonical))
+    next_stack = (*stack, canonical)
+    for line_number, raw_line in enumerate(raw_lines, start=1):
+        tokens = tokens_from_line(raw_line)
+        if not tokens:
+            continue
+
+        key = tokens[0].lower()
+        if key == "include" and len(tokens) > 1:
+            for pattern in tokens[1:]:
+                expanded = expand_path(pattern, include_base)
+                for match in sorted(glob.glob(expanded)):
+                    match_path = Path(match)
+                    if match_path.is_file():
+                        yield from config_lines(
+                            match_path,
+                            include_base,
+                            next_stack,
+                            files,
+                            errors,
+                        )
+            continue
+
+        yield canonical, line_number, tokens
+
+
+def is_literal_alias(value: str) -> bool:
+    return bool(value) and not value.startswith("!") and not any(
+        char in value for char in WILDCARD_CHARS
+    )
+
+
+def discover(config_path: Path) -> tuple[list[Host], list[str], list[str]]:
+    hosts: list[Host] = []
+    by_alias: dict[str, Host] = {}
+    active: list[Host] = []
+    files: set[str] = set()
+    errors: list[str] = []
+    include_base = config_path.expanduser().resolve(strict=False).parent
+
+    for source, line_number, tokens in config_lines(
+        config_path, include_base, files=files, errors=errors
+    ):
+        key = tokens[0].lower()
+
+        if key == "host":
+            active = []
+            for alias in tokens[1:]:
+                if not is_literal_alias(alias):
+                    continue
+                host = by_alias.get(alias)
+                if host is None:
+                    host = Host(alias=alias, source=str(source), line=line_number)
+                    by_alias[alias] = host
+                    hosts.append(host)
+                active.append(host)
+            continue
+
+        if key == "match":
+            active = []
+            continue
+
+        if key in DISPLAY_KEYS and len(tokens) > 1:
+            value = " ".join(tokens[1:])
+            for host in active:
+                # OpenSSH uses the first obtained value for most keywords.
+                host.options.setdefault(key, value)
+
+    return hosts, sorted(files), errors
+
+
+def state_path() -> Path:
+    state_home = os.environ.get("XDG_STATE_HOME")
+    root = Path(state_home) if state_home else Path.home() / ".local" / "state"
+    return root / "omassh" / "recent.json"
+
+
+def read_recents() -> dict[str, int]:
+    try:
+        data = json.loads(state_path().read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {
+        str(alias): int(timestamp)
+        for alias, timestamp in data.items()
+        if isinstance(alias, str) and isinstance(timestamp, (int, float))
+    }
+
+
+def write_recents(recents: dict[str, int]) -> None:
+    path = state_path()
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    newest = dict(sorted(recents.items(), key=lambda item: item[1], reverse=True)[:50])
+
+    fd, temporary = tempfile.mkstemp(prefix="recent.", dir=path.parent, text=True)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(newest, stream, ensure_ascii=False, separators=(",", ":"))
+            stream.write("\n")
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def command_list(args: argparse.Namespace) -> int:
+    config = Path(expand_path(args.config, Path.home() / ".ssh"))
+    hosts, files, errors = discover(config)
+    recents = read_recents()
+    rows = [host.as_json(recents.get(host.alias, 0)) for host in hosts]
+    rows.sort(
+        key=lambda row: (
+            0 if row["recentAt"] else 1,
+            -int(row["recentAt"]),
+            str(row["alias"]).casefold(),
+        )
+    )
+    rows = rows[: args.limit]
+    json.dump(
+        {
+            "version": 1,
+            "config": str(config),
+            "hosts": rows,
+            "files": files,
+            "errors": errors,
+        },
+        sys.stdout,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    sys.stdout.write("\n")
+    return 0
+
+
+def command_record(args: argparse.Namespace) -> int:
+    if not args.alias or "\n" in args.alias or "\0" in args.alias:
+        raise SystemExit("invalid SSH alias")
+    recents = read_recents()
+    recents[args.alias] = int(time.time())
+    write_recents(recents)
+    return 0
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(description=__doc__)
+    subparsers = result.add_subparsers(dest="command", required=True)
+
+    list_parser = subparsers.add_parser("list", help="print discovered hosts as JSON")
+    list_parser.add_argument("--config", default="~/.ssh/config")
+    list_parser.add_argument("--limit", type=int, default=200)
+    list_parser.set_defaults(handler=command_list)
+
+    record_parser = subparsers.add_parser("record", help="record a recently used host")
+    record_parser.add_argument("--alias", required=True)
+    record_parser.set_defaults(handler=command_record)
+    return result
+
+
+def main() -> int:
+    args = parser().parse_args()
+    if getattr(args, "limit", 1) < 1:
+        raise SystemExit("--limit must be greater than zero")
+    return int(args.handler(args))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
